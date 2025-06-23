@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useFonts } from "expo-font";
 import StyleOfIndex from "../../../assets/style/home"; // Assumindo que home.jsx exporta estilos como default
 import { StyleSheet, View, Text, TouchableOpacity, Image, ScrollView, Dimensions, ImageBackground, ActivityIndicator, Platform } from "react-native";
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ActivityCalendar from "../../../components/ActivityCalendar";
 import DayActivityDetails, { DetailedActivity } from "../../../components/DayActivityDetails";
 
@@ -14,7 +14,7 @@ const coursesInProgress = [
 ];
 
 const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000/api' : 'http://localhost:3000/api';
-const USER_ID = '1'; // Simulação de ID do usuário
+const USER_ID = '1';
 
 export default function ProgressScreen() {
   const [fontsLoaded] = useFonts({
@@ -38,16 +38,49 @@ export default function ProgressScreen() {
     setErrorCalendar(null);
     setMarkedDatesData({});
     try {
-      const response = await fetch(`${API_BASE_URL}/user/activity-calendar?month=${month}&userId=${USER_ID}`);
+      console.log("Tentando buscar token do AsyncStorage...");
+      // Certifique-se de que AsyncStorage está importado no topo do arquivo:
+      // import AsyncStorage from '@react-native-async-storage/async-storage';
+      const token = await AsyncStorage.getItem('userToken');
+
+      // DEBUG: Verificar o token recuperado
+      console.log("Token recuperado do AsyncStorage:", token);
+      console.log("Tipo do token:", typeof token);
+
+      if (!token) {
+        console.error("Token não encontrado no AsyncStorage ou é inválido.");
+        throw new Error('Token de autenticação não encontrado.');
+      }
+
+      console.log("Enviando requisição com o token:", token); // Log para ver o token antes de enviar
+
+      // Removido userId=${USER_ID} da URL, pois o backend deve usar o ID do token
+      const response = await fetch(`${API_BASE_URL}/user/activity-calendar?month=${month}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-access-token': token
+        }
+      });
+
+      // DEBUG: Verificar o status da resposta
+      console.log("Status da resposta do servidor:", response.status);
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: `Erro HTTP: ${response.status}` }));
+        const errorData = await response.json().catch(() => ({ message: `Erro HTTP: ${response.status} - ${response.statusText}` }));
+        // Log adicional para o erro
+        console.error("Erro na resposta do servidor:", response.status, errorData.message);
+        if (response.status === 401 || response.status === 403) {
+          console.error('Erro de autenticação do servidor:', errorData.message);
+        }
         throw new Error(errorData.message || `Erro HTTP: ${response.status}`);
       }
       const data = await response.json();
       setMarkedDatesData(data);
     } catch (err: any) {
+      // Modificando o log de erro para ser mais específico
+      console.error("Erro em fetchActivityCalendarData:", err.message, err);
       setErrorCalendar(err.message || 'Falha ao buscar dados do calendário.');
-      console.error("fetchActivityCalendarData error:", err);
     } finally {
       setIsLoadingCalendar(false);
     }
@@ -75,7 +108,7 @@ export default function ProgressScreen() {
 
   useEffect(() => {
     if (fontsLoaded) {
-        fetchActivityCalendarData(currentCalendarMonth);
+      fetchActivityCalendarData(currentCalendarMonth);
     }
   }, [currentCalendarMonth, fetchActivityCalendarData, fontsLoaded]);
 
@@ -103,7 +136,7 @@ export default function ProgressScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#1261D7" />
-        <Text style={{fontFamily: 'Poppins_Regular', marginTop: 10}}>Carregando fontes...</Text>
+        <Text style={{ fontFamily: 'Poppins_Regular', marginTop: 10 }}>Carregando fontes...</Text>
       </View>
     );
   }
@@ -133,22 +166,22 @@ export default function ProgressScreen() {
 
       <View style={styles.calendarSection}>
         <Text style={styles.sectionTitle}>Calendário de Atividades</Text>
-        {isLoadingCalendar && <ActivityIndicator size="large" color="#1261D7" style={styles.loadingIndicator}/>}
+        {isLoadingCalendar && <ActivityIndicator size="large" color="#1261D7" style={styles.loadingIndicator} />}
         {errorCalendar && !isLoadingCalendar && <Text style={styles.errorText}>Erro ao carregar calendário: {errorCalendar}</Text>}
         {!isLoadingCalendar && !errorCalendar && (
-            <ActivityCalendar
-                current={currentCalendarMonth}
-                markedDates={markedDatesData}
-                onDayPress={handleDayPress}
-                onMonthChange={handleMonthChange}
-            />
+          <ActivityCalendar
+            current={currentCalendarMonth}
+            markedDates={markedDatesData}
+            onDayPress={handleDayPress}
+            onMonthChange={handleMonthChange}
+          />
         )}
       </View>
 
       {/* Seção de Detalhes da Atividade do Dia - renderizada apenas se uma data estiver selecionada */}
       {selectedDate && (
         <View style={styles.detailsSection}>
-          {isLoadingDetails && <ActivityIndicator size="large" color="#1261D7" style={styles.loadingIndicator}/>}
+          {isLoadingDetails && <ActivityIndicator size="large" color="#1261D7" style={styles.loadingIndicator} />}
 
           {!isLoadingDetails && errorDetails && (
             <Text style={styles.errorText}>Erro ao carregar detalhes: {errorDetails}</Text>
@@ -162,27 +195,27 @@ export default function ProgressScreen() {
           )}
 
           {!isLoadingDetails && !errorDetails && dayActivities && dayActivities.length === 0 && (
-             <View style={styles.noActivityContainer}>
-                <Text style={styles.noActivityText}>Nenhuma atividade registrada para {selectedDate}.</Text>
-             </View>
-           )}
+            <View style={styles.noActivityContainer}>
+              <Text style={styles.noActivityText}>Nenhuma atividade registrada para {selectedDate}.</Text>
+            </View>
+          )}
         </View>
       )}
 
       <View style={styles.courseListSection}>
         <Text style={styles.sectionTitle}>Seus cursos em andamento</Text>
         <View style={styles.courseList}>
-            <View style={styles.rowWrapper}>
+          <View style={styles.rowWrapper}>
             {coursesInProgress.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.courseCard}>
+              <TouchableOpacity key={item.id} style={styles.courseCard}>
                 <Image source={{ uri: item.image }} style={styles.courseImage} />
                 <View style={styles.courseInfo}>
-                    <Text style={styles.courseTitle}>{item.title}</Text>
-                    <Text style={styles.courseProgress}>Progresso: {item.progress}</Text>
+                  <Text style={styles.courseTitle}>{item.title}</Text>
+                  <Text style={styles.courseProgress}>Progresso: {item.progress}</Text>
                 </View>
-                </TouchableOpacity>
+              </TouchableOpacity>
             ))}
-            </View>
+          </View>
         </View>
       </View>
     </ScrollView>
@@ -242,7 +275,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 10,
     paddingVertical: 15,
-    marginHorizontal:10,
+    marginHorizontal: 10,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -250,7 +283,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   detailsSection: {
-    marginHorizontal:10,
+    marginHorizontal: 10,
     marginBottom: 20,
   },
   sectionTitle: {
